@@ -1,0 +1,35 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+.vscode/
+
+# Flutter/Dart/Pub related
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+build/
+
+# Example app caches
+example/.model_cache/
+example/android/app/.cxx/
+
+# Local smoke-test outputs/dependencies
+/dev/web_smoke/node_modules/
+/tmp/
+ios/Flutter/ephemeral/**
+macos/Flutter/ephemeral/**
