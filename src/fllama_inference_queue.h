@@ -73,6 +73,13 @@ public:
   // next request recreates the backend from scratch.
   void mark_unhealthy(const std::string &model_path);
 
+  // Destroy every idle server (active_users == 0) except [except_path]
+  // (pass "" to evict all idle).  Frees model weights + KV immediately so a
+  // different model can load without both being resident — on 6GB iPhones two
+  // resident models plus a context re-create exceed the Metal working set and
+  // the OS kills the app.  Thread-safe; destructors run outside the lock.
+  void evict_idle_except(const std::string &except_path);
+
   // Cancellation.
   void cancel(int request_id);
   bool is_cancelled(int request_id);

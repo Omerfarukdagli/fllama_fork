@@ -314,3 +314,7 @@ external void fllamaCancelInferenceJs(int requestId);
 void fllamaCancelInference(int requestId) {
   fllamaCancelInferenceJs(requestId);
 }
+
+/// Frees every idle model context except [exceptModelPath]. Web keeps a
+/// single wasm module/model, so there is nothing to evict — no-op.
+Future<void> fllamaEvictIdleServers({String exceptModelPath = ''}) async {}

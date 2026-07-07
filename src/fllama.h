@@ -76,6 +76,15 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_
                            fllama_inference_callback callback);
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id);
 
+// Frees every idle (no in-flight request) model context except the one at
+// [except_model_path] (pass NULL or "" to evict all idle).  Host apps call
+// this before loading a DIFFERENT model (model switch / benchmark) so two
+// models are never resident at once — on memory-tight phones two resident
+// models plus a context re-create exceed the GPU working set and the OS
+// kills the app.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
+fllama_evict_idle_servers(const char *except_model_path);
+
 // GPU device information.
 // Returns the number of GPU devices visible to ggml/llama.cpp.
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void);

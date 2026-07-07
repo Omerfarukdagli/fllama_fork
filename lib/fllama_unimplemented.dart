@@ -95,6 +95,12 @@ void fllamaCancelInference(int requestId) {
   throw UnimplementedError();
 }
 
+/// Frees every idle model context except [exceptModelPath]. See the io
+/// implementation for semantics.
+Future<void> fllamaEvictIdleServers({String exceptModelPath = ''}) {
+  throw UnimplementedError();
+}
+
 /// Returns the number of tokens in [request.input].
 ///
 /// Useful for identifying what messages will be in context when the LLM is run.
