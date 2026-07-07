@@ -121,6 +121,22 @@ static std::once_flag  g_backend_init;
 
 static void fllama_backend_init_once() {
   std::call_once(g_backend_init, [] {
+    // Filter llama.cpp's default logger: without a callback it prints EVERY
+    // level to stderr, including per-token LLAMA_LOG_DEBUG lines
+    // (set_embeddings / set_adapters_lora / ...) — thousands of lines per
+    // generation that flood the host app's console and visibly jank debug
+    // builds. Keep WARN+ (and CONT lines that continue a kept message).
+    llama_log_set(
+        [](enum ggml_log_level level, const char *text, void * /*ud*/) {
+          static thread_local bool last_kept = false;
+          if (level == GGML_LOG_LEVEL_CONT) {
+            if (last_kept) fputs(text, stderr);
+            return;
+          }
+          last_kept = (level >= GGML_LOG_LEVEL_WARN);
+          if (last_kept) fputs(text, stderr);
+        },
+        nullptr);
     ggml_backend_load_all();
     llama_backend_init();
     llama_log_set(fllama_filtered_llama_log_callback, nullptr);
@@ -605,6 +621,12 @@ fllama_inference_sync(fllama_inference_request request,
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
 fllama_inference_cancel(int request_id) {
   g_mgr.cancel(request_id);
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
+fllama_evict_idle_servers(const char *except_model_path) {
+  g_mgr.evict_idle_except(
+      except_model_path ? std::string(except_model_path) : std::string());
 }
 
 } // extern "C"

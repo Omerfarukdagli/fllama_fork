@@ -73,6 +73,22 @@ class FllamaBindings {
   late final _fllama_inference_cancel = _fllama_inference_cancelPtr
       .asFunction<void Function(int)>();
 
+  /// Frees every idle (no in-flight request) model context except the one at
+  /// [except_model_path] (pass nullptr/"" to evict all idle).
+  void fllama_evict_idle_servers(
+    ffi.Pointer<ffi.Char> except_model_path,
+  ) {
+    return _fllama_evict_idle_servers(
+      except_model_path,
+    );
+  }
+
+  late final _fllama_evict_idle_serversPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>(
+          'fllama_evict_idle_servers');
+  late final _fllama_evict_idle_servers = _fllama_evict_idle_serversPtr
+      .asFunction<void Function(ffi.Pointer<ffi.Char>)>();
+
   /// GPU device information.
   /// Returns the number of GPU devices visible to ggml/llama.cpp.
   int fllama_get_gpu_device_count() {
