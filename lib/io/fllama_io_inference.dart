@@ -222,6 +222,25 @@ void fllamaCancelInference(int requestId) async {
   helperIsolateSendPort.send(isolateCancel);
 }
 
+/// Frees every idle (no in-flight request) model context except the one at
+/// [exceptModelPath] (empty = evict all idle). Call before loading a
+/// DIFFERENT model (model switch / benchmark) so two models are never
+/// resident at once — on memory-tight phones two resident models plus a
+/// context re-create exceed the GPU working set and the OS kills the app.
+///
+/// Runs on a short-lived isolate: destroying a server joins its loop thread
+/// and frees multi-GB Metal buffers, which would otherwise jank the UI.
+Future<void> fllamaEvictIdleServers({String exceptModelPath = ''}) {
+  return Isolate.run(() {
+    final pathPtr = exceptModelPath.toNativeUtf8().cast<Char>();
+    try {
+      fllamaBindings.fllama_evict_idle_servers(pathPtr);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  });
+}
+
 // GLOBAL map to keep logger callbacks alive across ALL isolate invocations
 final Map<int, NativeCallable> _globalLoggerCallbacks = {};
 

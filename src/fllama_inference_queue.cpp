@@ -209,6 +209,27 @@ void ServerManager::mark_unhealthy(const std::string &model_path) {
   // Destructor runs outside the lock.
 }
 
+void ServerManager::evict_idle_except(const std::string &except_path) {
+  std::vector<std::unique_ptr<ServerResources>> victims;
+  {
+    std::unique_lock<std::shared_mutex> lk(servers_lock);
+    for (auto it = servers.begin(); it != servers.end();) {
+      if (it->first != except_path && it->second->active_users.load() == 0) {
+        victims.push_back(std::move(it->second));
+        it = servers.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  // Destructors (terminate loop + free weights/KV) run outside the lock.
+  for (auto &v : victims) {
+    std::cout << "[ServerManager] Evicting idle server: " << v->model_path
+              << "\n";
+    v.reset();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Cancellation
 // ---------------------------------------------------------------------------
