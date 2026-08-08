@@ -103,6 +103,12 @@ class OpenAiRequest {
   /// llama.cpp's default 0.0 when [draftNMax] is large.
   final double? draftPMin;
 
+  /// Optional GBNF grammar (llama.cpp format) constraining sampling for THIS
+  /// request — e.g. forcing a syntactically valid tool-call JSON object from
+  /// small models. Null/empty = unconstrained. Passed through to the native
+  /// inference request's long-standing `grammar` field.
+  final String? grammar;
+
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
@@ -181,5 +187,6 @@ class OpenAiRequest {
     this.draftModelPath,
     this.draftNMax,
     this.draftPMin,
+    this.grammar,
   });
 }
