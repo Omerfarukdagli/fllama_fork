@@ -149,7 +149,10 @@ Future<int> fllamaChat(
     penaltyRepeat: request.presencePenalty,
     temperature: request.temperature,
     topP: request.topP,
-    grammar: '', // deprecated, llama.cpp handles tools internally now
+    // Pass the caller's grammar through to the native sampler (the field was
+    // orphaned when tool handling moved into llama.cpp, but the FFI plumbing
+    // still works and per-request constrained sampling needs it).
+    grammar: request.grammar ?? '',
     logger: request.logger,
     eosToken: eosToken,
     openAiRequestJsonString: request.toJsonString(),
