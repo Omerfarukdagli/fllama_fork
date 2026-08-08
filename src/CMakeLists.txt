@@ -31,6 +31,21 @@ if(ANDROID)
     set(GGML_LLAMAFILE OFF CACHE BOOL "Disable llamafile for Android" FORCE)
     set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP for Android" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static libs for Android" FORCE)
+
+    # Experimental Adreno GPU offload via OpenCL. OFF by default: it needs the
+    # OpenCL headers + ICD loader vendored into the NDK sysroot and a real
+    # Adreno device to validate (see docs/backend/OPENCL.md and
+    # ADRENO_OPENCL.md in the fork root). Enable with:
+    #   flutter build apk --dart-define… -Pfllama.opencl=ON   (or)
+    #   cmake … -DFLLAMA_ANDROID_OPENCL=ON
+    # When on, the app-side `androidGpu` setting starts requesting GPU layers.
+    option(FLLAMA_ANDROID_OPENCL "Enable Adreno OpenCL backend (experimental)" OFF)
+    if(FLLAMA_ANDROID_OPENCL)
+        message(STATUS "fllama: enabling experimental Adreno OpenCL backend")
+        set(GGML_OPENCL ON CACHE BOOL "Enable OpenCL backend" FORCE)
+        set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "Embed OpenCL kernels" FORCE)
+        set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "Adreno kernels" FORCE)
+    endif()
     
     # Only apply ARM-specific optimizations for ARM64 builds
     if(CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
