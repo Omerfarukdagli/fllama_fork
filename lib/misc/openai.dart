@@ -91,6 +91,12 @@ class OpenAiRequest {
   final Function(String)? logger;
   final ToolChoice? toolChoice;
 
+  /// Optional GBNF grammar (llama.cpp format) constraining sampling for THIS
+  /// request — e.g. forcing a syntactically valid tool-call JSON object from
+  /// small models. Null/empty = unconstrained. Passed through to the native
+  /// inference request's long-standing `grammar` field.
+  final String? grammar;
+
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
@@ -169,5 +175,6 @@ class OpenAiRequest {
     // Optional logger.
     this.logger,
     this.jinjaTemplate,
+    this.grammar,
   });
 }
