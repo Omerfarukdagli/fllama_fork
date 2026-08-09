@@ -134,9 +134,20 @@ void main(List<String> args) async {
     );
 
     // ── Compute build key ──────────────────────────────────────────────
+    // iOS device and simulator both build arm64 with the same defines, so
+    // os+arch+defines alone collide. Their compiled slices, however, target
+    // different platforms — a simulator dylib that leaks into a device
+    // archive fails App Store validation ("references an unsupported
+    // platform in the arm64 slice; Simulator platforms aren't permitted").
+    // Fold the SDK (iphoneos vs iphonesimulator) into the key so the two
+    // never share a cache entry.
+    final iosSdk =
+        targetOS == OS.iOS ? input.config.code.iOS.targetSdk.type : null;
+
     final buildKey = _computeBuildKey(
       os: targetOS.name,
       arch: input.config.code.targetArchitecture.name,
+      iosSdk: iosSdk,
       defines: defines,
       sourceFiles: sourceFiles,
     );
@@ -406,13 +417,17 @@ Future<List<_SourceFile>> _collectSourceFiles(Uri sourceDir) async {
 String _computeBuildKey({
   required String os,
   required String arch,
+  required String? iosSdk,
   required Map<String, String> defines,
   required List<_SourceFile> sourceFiles,
 }) {
   final buffer = StringBuffer();
-  buffer.writeln('v1'); // schema tag — bump to invalidate all prior caches
+  buffer.writeln('v2'); // schema tag — bump to invalidate all prior caches
   buffer.writeln('os=$os');
   buffer.writeln('arch=$arch');
+  // Device vs simulator produce arm64 slices for different platforms; keep
+  // their caches distinct (null for every non-iOS target — no key change).
+  if (iosSdk != null) buffer.writeln('iosSdk=$iosSdk');
 
   final sortedDefines = defines.entries.toList()
     ..sort((a, b) => a.key.compareTo(b.key));
