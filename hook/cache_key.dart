@@ -91,13 +91,21 @@ Future<List<SourceFileFingerprint>> collectSourceFiles(Uri sourceDir) async {
 String computeBuildKey({
   required String os,
   required String arch,
+  required String? iosSdk,
   required Map<String, String> defines,
   required List<SourceFileFingerprint> sourceFiles,
 }) {
   final buffer = StringBuffer();
-  buffer.writeln('v2'); // v2 uses content digests instead of unstable mtimes.
+  // v3 folds the iOS SDK into the key. v2 (content digests) could not tell an
+  // iphoneos build from an iphonesimulator one — both are arm64 with the same
+  // defines — so whichever built first won and a simulator dylib could end up
+  // in a device archive, failing App Store validation with a 409.
+  buffer.writeln('v3');
   buffer.writeln('os=$os');
   buffer.writeln('arch=$arch');
+  // Device vs simulator produce arm64 slices for different platforms; keep
+  // their caches distinct (null for every non-iOS target — no key change).
+  if (iosSdk != null) buffer.writeln('iosSdk=$iosSdk');
 
   final sortedDefines = defines.entries.toList()
     ..sort((a, b) => a.key.compareTo(b.key));
