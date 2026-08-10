@@ -155,6 +155,16 @@ Pointer<fllama_inference_request> _toNative(
     request.lora_path = loraPathCstr.cast<Char>();
     request.lora_scale = dart.loraScale ?? 1.0;
   }
+  if (dart.requestOverridesJson?.isNotEmpty == true) {
+    request.request_overrides_json = dart.requestOverridesJson!
+        .toNativeUtf8()
+        .cast<Char>();
+  }
+  if (dart.runtimeOverridesJson?.isNotEmpty == true) {
+    request.runtime_overrides_json = dart.runtimeOverridesJson!
+        .toNativeUtf8()
+        .cast<Char>();
+  }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
       final message = pointerCharToString(responsePointer);
@@ -400,6 +410,12 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
           }
           if (nativeRequest.draft_model_path != nullptr) {
             calloc.free(nativeRequest.draft_model_path);
+          }
+          if (nativeRequest.request_overrides_json != nullptr) {
+            calloc.free(nativeRequest.request_overrides_json);
+          }
+          if (nativeRequest.runtime_overrides_json != nullptr) {
+            calloc.free(nativeRequest.runtime_overrides_json);
           }
           calloc.free(nativeRequestPointer);
         }

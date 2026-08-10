@@ -65,7 +65,17 @@ static bool params_match(const ServerResources &r,
                                 : params.lora_adapters.front().path) &&
          r.lora_scale   == (params.lora_adapters.empty()
                                 ? 0.0f
-                                : params.lora_adapters.front().scale);
+                                : params.lora_adapters.front().scale) &&
+         // Load-time tuning overrides. The KV cache dtype and the n-gram
+         // self-speculation mode are baked into the llama_context when the
+         // model loads, so — exactly like a LoRA adapter — a server built with
+         // different values cannot serve this request.
+         r.cache_type_k == params.cache_type_k &&
+         r.cache_type_v == params.cache_type_v &&
+         r.cache_ram_mib == params.cache_ram_mib &&
+         r.n_batch      == (int) params.n_batch &&
+         r.n_ubatch     == (int) params.n_ubatch &&
+         r.spec_types   == params.speculative.types;
 }
 
 ServerResources *
@@ -168,6 +178,12 @@ ServerManager::get_or_create(const std::string &model_path,
                            ? 0.0f
                            : params.lora_adapters.front().scale;
   res->draft_p_min   = params.speculative.draft.p_min;
+  res->cache_type_k  = params.cache_type_k;
+  res->cache_type_v  = params.cache_type_v;
+  res->cache_ram_mib = params.cache_ram_mib;
+  res->n_batch       = (int) params.n_batch;
+  res->n_ubatch      = (int) params.n_ubatch;
+  res->spec_types    = params.speculative.types;
   res->last_used     = std::chrono::steady_clock::now();
   res->active_users.store(1);
 

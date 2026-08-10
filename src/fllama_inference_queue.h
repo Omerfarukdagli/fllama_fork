@@ -16,9 +16,13 @@
 #include "fllama.h"
 #include <vector>
 
+// Pulled in for the load-time tuning fields below (ggml_type,
+// common_speculative_type), which are part of the server cache key.
+#include "llama.cpp/common/common.h"
+#include "llama.cpp/ggml/include/ggml.h"
+
 // Forward declarations.
 struct server_context;
-struct common_params;
 
 // ---------------------------------------------------------------------------
 // ServerResources — holds a server_context and its dedicated loop thread.
@@ -40,6 +44,18 @@ struct ServerResources {
   float draft_p_min = -1; // MTP/speculative min draft confidence; load-time param
   std::string lora_path;  // LoRA adapter path ("" if none); load-time param
   float lora_scale = 0;   // LoRA adapter strength; load-time param
+
+  // Tuning overrides baked in when the model loads (runtime_overrides_json in
+  // fllama.h): quantized KV cache, host-RAM prompt cache, n-gram
+  // self-speculation. A server built with different values can't serve this
+  // request, so they belong in the cache key.
+  ggml_type cache_type_k = GGML_TYPE_F16;
+  ggml_type cache_type_v = GGML_TYPE_F16;
+  int cache_ram_mib = 0;
+  int n_batch = 0;
+  int n_ubatch = 0;
+  std::vector<enum common_speculative_type> spec_types = {
+      COMMON_SPECULATIVE_TYPE_NONE};
 
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread

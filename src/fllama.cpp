@@ -33,6 +33,121 @@
 
 #include "ggml-backend.h"
 
+// ── Tuning overrides (request_overrides_json / runtime_overrides_json) ───────
+//
+// Both are optional JSON objects; an absent key leaves llama.cpp's own default
+// untouched, so an empty/NULL string reproduces the pre-override behaviour
+// exactly. See fllama.h for the recognized keys.
+
+using fllama_json = nlohmann::ordered_json;
+
+// Defined in the logging section just below.
+static void log_message(const char *msg, fllama_log_callback logger);
+static void log_message(const std::string &m, fllama_log_callback l);
+
+static fllama_json parse_overrides(const char *s, const char *what,
+                                   fllama_log_callback logger) {
+  if (!s || s[0] == '\0') return fllama_json::object();
+  try {
+    auto j = fllama_json::parse(s);
+    if (!j.is_object()) throw std::runtime_error("not a JSON object");
+    return j;
+  } catch (const std::exception &e) {
+    // A malformed override must never take the request down with it — run with
+    // defaults and say so in the log.
+    log_message(std::string("[fllama] ignoring bad ") + what + ": " + e.what(),
+                logger);
+    return fllama_json::object();
+  }
+}
+
+// Applies one key and records that it was recognized. The bookkeeping exists
+// because the dangerous failure here is silent: a key nobody reads makes the
+// caller's experiment a no-op, and "no difference" then gets written down as a
+// real result. Anything left unconsumed is logged loudly instead.
+template <typename T>
+static void apply_override(const fllama_json &j, const char *key, T &out,
+                           std::vector<std::string> *seen = nullptr) {
+  if (seen) seen->push_back(key);
+  auto it = j.find(key);
+  if (it != j.end() && !it->is_null()) out = it->get<T>();
+}
+
+static void warn_unknown_keys(const fllama_json &j,
+                              const std::vector<std::string> &known,
+                              const char *what, fllama_log_callback logger) {
+  for (auto it = j.begin(); it != j.end(); ++it) {
+    if (std::find(known.begin(), known.end(), it.key()) == known.end()) {
+      log_message(std::string("[fllama] WARNING: ") + what +
+                      " key ignored (not implemented): " + it.key(),
+                  logger);
+    }
+  }
+}
+
+// Mirrors the (file-static, so unreachable) kv_cache_type_from_str in
+// common/arg.cpp. Unknown names keep the caller's current value.
+static bool kv_cache_type_from_name(const std::string &s, ggml_type &out) {
+  static const std::pair<const char *, ggml_type> kTypes[] = {
+      {"f32", GGML_TYPE_F32},   {"f16", GGML_TYPE_F16},
+      {"bf16", GGML_TYPE_BF16}, {"q8_0", GGML_TYPE_Q8_0},
+      {"q4_0", GGML_TYPE_Q4_0}, {"q4_1", GGML_TYPE_Q4_1},
+      {"iq4_nl", GGML_TYPE_IQ4_NL}, {"q5_0", GGML_TYPE_Q5_0},
+      {"q5_1", GGML_TYPE_Q5_1},
+  };
+  for (const auto &t : kTypes) {
+    if (s == t.first) { out = t.second; return true; }
+  }
+  return false;
+}
+
+static bool spec_ngram_type_from_name(const std::string &s,
+                                      common_speculative_type &out) {
+  // Self-speculative (n-gram) decoding needs NO second model — it drafts from
+  // patterns already present in the context, so it costs no extra weights on a
+  // memory-bound phone.
+  static const std::pair<const char *, common_speculative_type> kTypes[] = {
+      {"simple", COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE},
+      {"map_k", COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K},
+      {"map_k4v", COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V},
+      {"mod", COMMON_SPECULATIVE_TYPE_NGRAM_MOD},
+      {"cache", COMMON_SPECULATIVE_TYPE_NGRAM_CACHE},
+  };
+  for (const auto &t : kTypes) {
+    if (s == t.first) { out = t.second; return true; }
+  }
+  return false;
+}
+
+// Load-time overrides: these change how the llama_context is built, so the
+// server cache must treat a different value as a different server.
+static void apply_runtime_overrides(const fllama_json &j, common_params &params,
+                                    fllama_log_callback logger) {
+  std::string k_type, v_type, ngram;
+  std::vector<std::string> known;
+  apply_override(j, "cache_type_k", k_type, &known);
+  apply_override(j, "cache_type_v", v_type, &known);
+  apply_override(j, "cache_ram_mib", params.cache_ram_mib, &known);
+  apply_override(j, "spec_ngram", ngram, &known);
+  apply_override(j, "n_batch", params.n_batch, &known);
+  apply_override(j, "n_ubatch", params.n_ubatch, &known);
+  warn_unknown_keys(j, known, "runtime_overrides_json", logger);
+
+  if (!k_type.empty() && !kv_cache_type_from_name(k_type, params.cache_type_k))
+    log_message("[fllama] unknown cache_type_k: " + k_type, logger);
+  if (!v_type.empty() && !kv_cache_type_from_name(v_type, params.cache_type_v))
+    log_message("[fllama] unknown cache_type_v: " + v_type, logger);
+
+  if (!ngram.empty()) {
+    common_speculative_type t;
+    if (spec_ngram_type_from_name(ngram, t)) {
+      params.speculative.types = {t};
+    } else {
+      log_message("[fllama] unknown spec_ngram: " + ngram, logger);
+    }
+  }
+}
+
 // ── Logging ──────────────────────────────────────────────────────────────────
 
 static constexpr bool kLogVerboseDebugMessages = false;
@@ -227,6 +342,14 @@ static void run_inference(fllama_inference_request request,
     // The KV cache in the llama_context still handles prompt reuse;
     // this only controls the EXTRA host-RAM cache from PR #16391.
     params.cache_ram_mib = 0;
+
+    // Load-time tuning overrides (KV cache dtype, host prompt cache, n-gram
+    // self-speculation). Applied before the server is fetched/created so
+    // get_or_create() sees the values its cache key is compared against.
+    const auto runtime_overrides = parse_overrides(
+        request.runtime_overrides_json, "runtime_overrides_json",
+        request.dart_logger);
+    apply_runtime_overrides(runtime_overrides, params, request.dart_logger);
 
 #if TARGET_IPHONE_SIMULATOR
     params.n_gpu_layers = 0;
@@ -432,6 +555,77 @@ static void run_inference(fllama_inference_request request,
 
     std::random_device rd;
     task.params.sampling.seed = rd();
+
+    // Per-request tuning overrides. Applied last so they win over everything
+    // above — including the random seed, which a benchmark wants to pin.
+    {
+      const auto ov = parse_overrides(request.request_overrides_json,
+                                      "request_overrides_json",
+                                      request.dart_logger);
+      auto &smp = task.params.sampling;
+      std::vector<std::string> known;
+      apply_override(ov, "top_k", smp.top_k, &known);
+      apply_override(ov, "min_p", smp.min_p, &known);
+      apply_override(ov, "typ_p", smp.typ_p, &known);
+      apply_override(ov, "top_n_sigma", smp.top_n_sigma, &known);
+      // penalty_repeat / penalty_freq are set from the request fields above;
+      // an override here wins. Both are listed because fllama's OpenAI layer
+      // maps presencePenalty (default 1.1) onto llama.cpp's penalty_repeat,
+      // whose own default is 1.0 — so every request carries a repetition
+      // penalty unless the caller says otherwise, and turning that off has to
+      // be expressible.
+      apply_override(ov, "penalty_repeat", smp.penalty_repeat, &known);
+      apply_override(ov, "penalty_freq", smp.penalty_freq, &known);
+      apply_override(ov, "penalty_last_n", smp.penalty_last_n, &known);
+      apply_override(ov, "penalty_present", smp.penalty_present, &known);
+      apply_override(ov, "dry_multiplier", smp.dry_multiplier, &known);
+      apply_override(ov, "dry_base", smp.dry_base, &known);
+      apply_override(ov, "dry_allowed_length", smp.dry_allowed_length, &known);
+      apply_override(ov, "seed", smp.seed, &known);
+      apply_override(ov, "n_cache_reuse", task.params.n_cache_reuse, &known);
+
+      // Cache reuse needs a context whose KV cache can be shifted; the server
+      // silently ignores it otherwise (and always for multimodal). Say so —
+      // a benchmark that can't tell "disabled" from "no benefit" will write
+      // the wrong conclusion down.
+      if (task.params.n_cache_reuse > 0) {
+        auto *lctx = srv->srv_ctx->get_llama_context();
+        const bool can_shift = llama_memory_can_shift(llama_get_memory(lctx));
+        log_message(std::string("[fllama] n_cache_reuse=") +
+                        std::to_string(task.params.n_cache_reuse) +
+                        (can_shift ? " (active)"
+                                   : " IGNORED: this context cannot shift its "
+                                     "KV cache"),
+                    request.dart_logger);
+      }
+      for (const char *k : {"reasoning_budget_tokens", "reasoning_budget_start_tag",
+                            "reasoning_budget_end_tag", "reasoning_budget_message"}) {
+        known.push_back(k);
+      }
+      warn_unknown_keys(ov, known, "request_overrides_json", request.dart_logger);
+
+      // Reasoning budget: cap the chain-of-thought at N tokens, then force the
+      // closing tag (preceded by an optional message) so the model has to stop
+      // thinking and answer. Without it a small reasoning model can spend the
+      // whole window thinking and emit no answer at all.
+      int32_t rbudget = -1;
+      apply_override(ov, "reasoning_budget_tokens", rbudget);
+      if (rbudget >= 0) {
+        std::string start_tag = "<think>", end_tag = "</think>", msg;
+        apply_override(ov, "reasoning_budget_start_tag", start_tag);
+        apply_override(ov, "reasoning_budget_end_tag", end_tag);
+        apply_override(ov, "reasoning_budget_message", msg);
+
+        auto *lctx = srv->srv_ctx->get_llama_context();
+        auto *vocab = llama_model_get_vocab(llama_get_model(lctx));
+        smp.reasoning_budget_tokens = rbudget;
+        smp.reasoning_budget_start = common_tokenize(vocab, start_tag, false, true);
+        smp.reasoning_budget_end = common_tokenize(vocab, end_tag, false, true);
+        smp.reasoning_budget_forced =
+            common_tokenize(vocab, msg + end_tag, false, true);
+        smp.reasoning_budget_message = msg;
+      }
+    }
 
     if (is_oai) {
       task.params.res_type           = TASK_RESPONSE_TYPE_OAI_CHAT;
