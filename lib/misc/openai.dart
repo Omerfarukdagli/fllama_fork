@@ -84,6 +84,11 @@ class OpenAiRequest {
   final String modelPath;
   final String? mmprojPath;
   final int numGpuLayers;
+
+  /// Local fork patch: CPU threads for inference, plumbed through to the
+  /// native request. Upstream hardcodes FllamaInferenceRequest's default of 2,
+  /// which leaves most of a modern phone's cores idle.
+  final int numThreads;
   final int contextSize;
   final int? nParallel;
   final String? jinjaTemplate;
@@ -172,6 +177,10 @@ class OpenAiRequest {
     // Number of layers to run on GPU. 0 means all layers on CPU. 99 means all
     // layers on GPU.
     this.numGpuLayers = 0,
+    // CPU threads for inference. Default 2 matches FllamaInferenceRequest's
+    // long-standing default (safe everywhere, slow on big phones). Callers can
+    // raise it based on the device's core count.
+    this.numThreads = 2,
     // ultra-safe for mobile inference, but rather small: ChatGPT launched with
     // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3
     // minutes reading time.
