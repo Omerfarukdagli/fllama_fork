@@ -52,7 +52,16 @@ struct ServerResources {
 // ---------------------------------------------------------------------------
 class ServerManager {
 public:
-  static constexpr int DEFAULT_N_PARALLEL = 4;
+  // Local fork patch: upstream defaults to 4 parallel server slots, which
+  // splits the requested context window 4 ways and reserves 4× the KV cache
+  // up front. This app is single-user — only one conversation generates at a
+  // time — so the extra 3 slots are pure wasted RAM. On a 6GB iPhone a 3B
+  // model at 4 slots reserved ~900MiB of KV and pushed the device into memory
+  // pressure (visible stutter / freeze). 1 slot gives the conversation the
+  // full requested window at a quarter of the KV memory. Post-answer title +
+  // follow-up generations simply queue behind the answer instead of running
+  // concurrently, which is imperceptible for those tiny (<100 token) calls.
+  static constexpr int DEFAULT_N_PARALLEL = 1;
   static int MODEL_INACTIVITY_TIMEOUT_SEC;
   static int CLEANUP_INTERVAL_SEC;
 
