@@ -38,6 +38,8 @@ struct ServerResources {
   std::string draft_path; // MTP/speculative drafter model path ("" if none)
   int draft_n_max = 0;    // MTP/speculative max draft tokens; load-time param
   float draft_p_min = -1; // MTP/speculative min draft confidence; load-time param
+  std::string lora_path;  // LoRA adapter path ("" if none); load-time param
+  float lora_scale = 0;   // LoRA adapter strength; load-time param
 
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread

@@ -108,6 +108,13 @@ class OpenAiRequest {
   /// llama.cpp's default 0.0 when [draftNMax] is large.
   final double? draftPMin;
 
+  /// Optional LoRA adapter GGUF applied on top of the base model (a personal
+  /// fine-tune). Null/empty runs the base model unchanged. Native-only.
+  final String? loraPath;
+
+  /// Optional adapter strength; null/<=0 means full strength.
+  final double? loraScale;
+
   /// Optional GBNF grammar (llama.cpp format) constraining sampling for THIS
   /// request — e.g. forcing a syntactically valid tool-call JSON object from
   /// small models. Null/empty = unconstrained. Passed through to the native
@@ -197,5 +204,7 @@ class OpenAiRequest {
     this.draftNMax,
     this.draftPMin,
     this.grammar,
+    this.loraPath,
+    this.loraScale,
   });
 }

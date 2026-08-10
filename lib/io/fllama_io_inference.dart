@@ -150,6 +150,11 @@ Pointer<fllama_inference_request> _toNative(
     request.draft_n_max = dart.draftNMax ?? 0;
     request.draft_p_min = dart.draftPMin ?? -1;
   }
+  if (dart.loraPath != null && dart.loraPath?.isNotEmpty == true) {
+    Pointer<Utf8> loraPathCstr = dart.loraPath!.toNativeUtf8();
+    request.lora_path = loraPathCstr.cast<Char>();
+    request.lora_scale = dart.loraScale ?? 1.0;
+  }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
       final message = pointerCharToString(responsePointer);

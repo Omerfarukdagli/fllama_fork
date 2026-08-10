@@ -68,6 +68,13 @@ class FllamaInferenceRequest {
   /// such as 0.95–0.99 when [draftNMax] is high.
   double? draftPMin;
 
+  /// Optional: LoRA adapter GGUF applied on top of the base model — a personal
+  /// fine-tune. Null/empty runs the base model unchanged.
+  String? loraPath;
+
+  /// Optional: adapter strength; null/<=0 means full strength.
+  double? loraScale;
+
   FllamaInferenceRequest({
     required this.contextSize,
     required this.input,
@@ -87,6 +94,8 @@ class FllamaInferenceRequest {
     this.draftModelPath,
     this.draftNMax,
     this.draftPMin,
+    this.loraPath,
+    this.loraScale,
   });
 }
 
@@ -158,6 +167,8 @@ Future<int> fllamaChat(
     eosToken: eosToken,
     openAiRequestJsonString: request.toJsonString(),
     draftModelPath: request.draftModelPath,
+    loraPath: request.loraPath,
+    loraScale: request.loraScale,
     draftNMax: request.draftNMax,
     draftPMin: request.draftPMin,
   );

@@ -211,6 +211,17 @@ static void run_inference(fllama_inference_request request,
     params.use_jinja = true;
     params.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
 
+    // Personal LoRA adapter, loaded next to the base model. The server applies
+    // it at load time, so a request that names one must not reuse a server
+    // that was created without it — see the cache key in
+    // fllama_inference_queue.cpp.
+    if (request.lora_path != nullptr && request.lora_path[0] != '\0') {
+      common_adapter_lora_info lora;
+      lora.path  = request.lora_path;
+      lora.scale = request.lora_scale > 0.0f ? request.lora_scale : 1.0f;
+      params.lora_adapters.push_back(lora);
+    }
+
     // Default is 8192 MiB — way too much for mobile/embedded.
     // 0 = disable host-memory prompt caching entirely.
     // The KV cache in the llama_context still handles prompt reuse;
