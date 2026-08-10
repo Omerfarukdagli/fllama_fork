@@ -73,6 +73,54 @@ struct fllama_inference_request {
                            // The server keyed cache treats a different adapter
                            // as a different server, so switching reloads.
   float lora_scale;        // Optional: adapter strength. <= 0 uses 1.0.
+
+  // Optional: JSON object of PER-REQUEST overrides. NULL/"" = none, which
+  // leaves every value at llama.cpp's default — so a zero-initialized request
+  // behaves exactly as it did before this field existed. Passing knobs as JSON
+  // instead of individual struct fields keeps the ABI (and the ffigen'd Dart
+  // struct) stable as we add tuning parameters.
+  //
+  // Recognized keys (any subset):
+  //   "top_k"                        int    (llama.cpp default 40; <=0 = off)
+  //   "min_p"                        float  (default 0.05; 0 = off)
+  //   "typ_p" / "top_n_sigma"        float
+  //   "penalty_last_n"               int    (default 64; 0 = off, -1 = n_ctx)
+  //   "penalty_present"              float
+  //   "dry_multiplier" / "dry_base"  float
+  //   "dry_allowed_length"           int
+  //   "seed"                         int    (fixed seed = reproducible runs;
+  //                                          omitted = random, as before)
+  //   "n_cache_reuse"                int    (min chunk size reused from the KV
+  //                                          cache via shifting; 0 = off)
+  //   "reasoning_budget_tokens"      int    (-1 = unlimited thinking)
+  //   "reasoning_budget_start_tag"   string (e.g. "<think>")
+  //   "reasoning_budget_end_tag"     string (e.g. "</think>")
+  //   "reasoning_budget_message"     string (injected before the end tag when
+  //                                          the budget runs out)
+  char *request_overrides_json;
+
+  // Optional: JSON object of LOAD-TIME overrides — these change how the model
+  // context itself is built, so the server cache treats a different value as a
+  // different server (same rule as lora_path). NULL/"" = none.
+  //
+  // Recognized keys (any subset):
+  //   "cache_type_k" / "cache_type_v"  string  "f16" (default), "bf16",
+  //                                            "q8_0", "q5_1", "q5_0",
+  //                                            "q4_1", "q4_0", "iq4_nl"
+  //   "cache_ram_mib"                  int     host-RAM prompt cache, MiB
+  //                                            (0 = disabled, our default)
+  //   "spec_ngram"                     string  self-speculative decoding with
+  //                                            NO draft model: "simple",
+  //                                            "map_k", "map_k4v", "mod",
+  //                                            "cache". Omitted = off.
+  //   "n_batch" / "n_ubatch"           int     prompt-processing batch sizes;
+  //                                            they trade memory for
+  //                                            time-to-first-token
+  //
+  // Unrecognized keys in either object are logged as warnings rather than
+  // silently dropped — a knob nobody reads turns an experiment into a no-op
+  // that still looks like a result.
+  char *runtime_overrides_json;
 };
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,

@@ -75,6 +75,17 @@ class FllamaInferenceRequest {
   /// Optional: adapter strength; null/<=0 means full strength.
   double? loraScale;
 
+  /// Optional: JSON object of per-request tuning overrides. See
+  /// `request_overrides_json` in fllama.h for the recognized keys. Null/empty
+  /// leaves every sampler and cache setting at llama.cpp's default.
+  String? requestOverridesJson;
+
+  /// Optional: JSON object of load-time tuning overrides (KV cache dtype, host
+  /// prompt cache, n-gram self-speculation). See `runtime_overrides_json` in
+  /// fllama.h. Changing it rebuilds the context, so it is part of the server
+  /// cache key.
+  String? runtimeOverridesJson;
+
   FllamaInferenceRequest({
     required this.contextSize,
     required this.input,
@@ -96,6 +107,8 @@ class FllamaInferenceRequest {
     this.draftPMin,
     this.loraPath,
     this.loraScale,
+    this.requestOverridesJson,
+    this.runtimeOverridesJson,
   });
 }
 
@@ -171,6 +184,8 @@ Future<int> fllamaChat(
     loraScale: request.loraScale,
     draftNMax: request.draftNMax,
     draftPMin: request.draftPMin,
+    requestOverridesJson: request.requestOverridesJson,
+    runtimeOverridesJson: request.runtimeOverridesJson,
   );
 
   return fllamaInference(inferenceRequest, callback);

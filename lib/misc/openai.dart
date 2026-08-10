@@ -121,6 +121,20 @@ class OpenAiRequest {
   /// inference request's long-standing `grammar` field.
   final String? grammar;
 
+  /// Optional per-request tuning overrides as a JSON object string — sampler
+  /// knobs llama.cpp supports but OpenAI's schema has no field for (`top_k`,
+  /// `min_p`, `penalty_last_n`, `seed`), plus `n_cache_reuse` and the
+  /// `reasoning_budget_*` family. Null/empty keeps llama.cpp's defaults, so
+  /// existing callers are unaffected. Native-only. See `request_overrides_json`
+  /// in fllama.h for the full key list.
+  final String? requestOverridesJson;
+
+  /// Optional load-time tuning overrides as a JSON object string:
+  /// `cache_type_k`/`cache_type_v` (quantized KV cache), `cache_ram_mib` (host
+  /// prompt cache), `spec_ngram` (n-gram self-speculative decoding, no draft
+  /// model needed). Changing this rebuilds the model context. Native-only.
+  final String? runtimeOverridesJson;
+
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
@@ -206,5 +220,7 @@ class OpenAiRequest {
     this.grammar,
     this.loraPath,
     this.loraScale,
+    this.requestOverridesJson,
+    this.runtimeOverridesJson,
   });
 }

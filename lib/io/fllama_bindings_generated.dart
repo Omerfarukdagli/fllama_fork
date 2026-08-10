@@ -279,6 +279,14 @@ final class fllama_inference_request extends ffi.Struct {
   /// Optional: adapter strength. <= 0 uses 1.0.
   @ffi.Float()
   external double lora_scale;
+
+  /// Optional: JSON object of per-request tuning overrides (top_k, min_p,
+  /// seed, n_cache_reuse, reasoning_budget_*). NULL/"" = llama.cpp defaults.
+  external ffi.Pointer<ffi.Char> request_overrides_json;
+
+  /// Optional: JSON object of load-time tuning overrides (cache_type_k/v,
+  /// cache_ram_mib, spec_ngram). Part of the server cache key.
+  external ffi.Pointer<ffi.Char> runtime_overrides_json;
 }
 
 typedef fllama_log_callback =
