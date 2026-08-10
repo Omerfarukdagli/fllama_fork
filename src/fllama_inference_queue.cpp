@@ -56,7 +56,16 @@ static bool params_match(const ServerResources &r,
          r.mmproj_path  == params.mmproj.path &&
          r.draft_path   == params.speculative.draft.mparams.path &&
          r.draft_n_max  == params.speculative.draft.n_max &&
-         r.draft_p_min  == params.speculative.draft.p_min;
+         r.draft_p_min  == params.speculative.draft.p_min &&
+         // Adapters are applied when the model loads, so a cached server
+         // built without one (or with a different one) cannot serve this
+         // request — reusing it would silently answer as the base model.
+         r.lora_path    == (params.lora_adapters.empty()
+                                ? std::string()
+                                : params.lora_adapters.front().path) &&
+         r.lora_scale   == (params.lora_adapters.empty()
+                                ? 0.0f
+                                : params.lora_adapters.front().scale);
 }
 
 ServerResources *
@@ -152,6 +161,12 @@ ServerManager::get_or_create(const std::string &model_path,
   res->mmproj_path   = params.mmproj.path;
   res->draft_path    = params.speculative.draft.mparams.path;
   res->draft_n_max   = params.speculative.draft.n_max;
+  res->lora_path     = params.lora_adapters.empty()
+                           ? std::string()
+                           : params.lora_adapters.front().path;
+  res->lora_scale    = params.lora_adapters.empty()
+                           ? 0.0f
+                           : params.lora_adapters.front().scale;
   res->draft_p_min   = params.speculative.draft.p_min;
   res->last_used     = std::chrono::steady_clock::now();
   res->active_users.store(1);

@@ -271,6 +271,14 @@ final class fllama_inference_request extends ffi.Struct {
   /// < 0 uses llama.cpp default.
   @ffi.Float()
   external double draft_p_min;
+
+  /// Optional: LoRA adapter GGUF loaded alongside the base model.
+  /// NULL/"" = none.
+  external ffi.Pointer<ffi.Char> lora_path;
+
+  /// Optional: adapter strength. <= 0 uses 1.0.
+  @ffi.Float()
+  external double lora_scale;
 }
 
 typedef fllama_log_callback =

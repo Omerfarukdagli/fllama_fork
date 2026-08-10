@@ -68,6 +68,11 @@ struct fllama_inference_request {
                            // draft_model_path is set. <= 0 falls back to 3.
   float draft_p_min;       // Optional: minimum drafter top-token probability.
                            // < 0 uses llama.cpp default.
+  char *lora_path;         // Optional: LoRA adapter GGUF loaded alongside the
+                           // base model (personal fine-tunes). NULL/"" = none.
+                           // The server keyed cache treats a different adapter
+                           // as a different server, so switching reloads.
+  float lora_scale;        // Optional: adapter strength. <= 0 uses 1.0.
 };
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,
