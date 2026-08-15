@@ -188,11 +188,43 @@ static bool fllama_is_noisy_per_token_llama_log(const char *text) {
          s == "adapters_lora_are_same: adapters = 0";
 }
 
+// llama.cpp's own errors go to stderr, which never reaches Dart — so a failed
+// load surfaced as a bare "Failed to create inference context" with no reason,
+// for us AND for the user. Keep the last error line so it can be attached to
+// the message we send back.
+static std::mutex g_last_error_mutex;
+static std::string g_last_llama_error;
+
+static void fllama_note_llama_error(const char *text) {
+  if (text == nullptr) {
+    return;
+  }
+  std::string line(text);
+  while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
+    line.pop_back();
+  }
+  if (line.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_last_error_mutex);
+  g_last_llama_error = line;
+}
+
+std::string fllama_take_last_llama_error() {
+  std::lock_guard<std::mutex> lock(g_last_error_mutex);
+  std::string out = g_last_llama_error;
+  g_last_llama_error.clear();
+  return out;
+}
+
 static void fllama_filtered_llama_log_callback(enum ggml_log_level level,
                                                const char *text,
                                                void *user_data) {
   if (fllama_is_noisy_per_token_llama_log(text)) {
     return;
+  }
+  if (level == GGML_LOG_LEVEL_ERROR) {
+    fllama_note_llama_error(text);
   }
   common_log_default_callback(level, text, user_data);
 }
@@ -387,8 +419,13 @@ static void run_inference(fllama_inference_request request,
     auto *srv = g_mgr.get_or_create(
         request.model_path, params, request.dart_logger);
     if (!srv || !srv->srv_ctx) {
+      const std::string reason = fllama_take_last_llama_error();
       emit_inference_callback(
-          callback, "Error: Failed to create inference context", "", true);
+          callback,
+          reason.empty()
+              ? std::string("Error: Failed to create inference context")
+              : "Error: Failed to create inference context: " + reason,
+          "", true);
       return;
     }
     // RAII — release when we leave scope.
