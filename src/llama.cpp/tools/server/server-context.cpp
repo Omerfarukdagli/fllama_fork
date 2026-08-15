@@ -904,6 +904,20 @@ private:
             return false;
         }
 
+        // The context can be null while the MODEL is fine: common_init_from_params
+        // returns a loaded model with no context when context creation fails on its
+        // own. Two ways that happens in practice, both hit by real users:
+        //   1. a LoRA adapter that cannot be applied to this base,
+        //   2. not enough memory for the KV cache — very reachable on a phone.
+        // Without this check the next line calls llama_n_ctx(nullptr) and the whole
+        // app dies with SIGSEGV at address 0x8 instead of reporting a failed load.
+        if (ctx_tgt == nullptr) {
+            SRV_ERR("failed to create context for model '%s' (bad LoRA adapter, or "
+                    "not enough memory for the KV cache)\n",
+                    params_base.model.path.c_str());
+            return false;
+        }
+
         vocab = llama_model_get_vocab(model_tgt);
 
         n_ctx = llama_n_ctx(ctx_tgt);
