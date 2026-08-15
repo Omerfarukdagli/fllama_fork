@@ -1216,7 +1216,14 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
         lora.reset(llama_adapter_lora_init(model, la.path.c_str()));
         if (lora == nullptr) {
             LOG_ERR("%s: failed to load lora adapter '%s'\n", __func__, la.path.c_str());
-            pimpl->model.reset(model);
+            // NOTE: do NOT reset pimpl->model here. It already owns `model`
+            // (set right after the load above), and unique_ptr::reset(p)
+            // deletes what it holds BEFORE storing p — so passing the same
+            // pointer frees the model and then keeps a dangling copy of it.
+            // The destructor then frees it a second time, which crashed in
+            // llama_model_free with a pointer-authentication failure.
+            // Returning here is enough: the model is freed exactly once, by
+            // the unique_ptr that already owns it.
             return;
         }
 
