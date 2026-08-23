@@ -887,7 +887,15 @@ static void run_embed(fllama_embed_request request,
 #else
     params.n_gpu_layers = request.num_gpu_layers;
 #endif
-    postprocess_cpu_params(params.cpuparams);
+    // Same finalization the chat path does, and for the same reason: fllama
+    // builds common_params directly instead of going through
+    // common_params_parse(). Leaving cpuparams_batch.n_threads at its -1
+    // sentinel makes b10450's threadpool allocation wrap to nearly SIZE_MAX —
+    // it crashed here in __bzero via ggml_threadpool_new_impl before this line
+    // existed. Embedding builds a threadpool exactly like generation does, so
+    // skipping the batch half is not an optimization, it is a segfault.
+    postprocess_cpu_params(params.cpuparams, nullptr);
+    postprocess_cpu_params(params.cpuparams_batch, &params.cpuparams);
 
     auto *srv = g_mgr.get_or_create(request.model_path, params,
                                     request.dart_logger);
