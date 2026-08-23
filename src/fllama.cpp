@@ -669,7 +669,12 @@ static void run_inference(fllama_inference_request request,
         auto *vocab = llama_model_get_vocab(llama_get_model(lctx));
         smp.reasoning_budget_tokens = rbudget;
         smp.reasoning_budget_start = common_tokenize(vocab, start_tag, false, true);
-        smp.reasoning_budget_end = common_tokenize(vocab, end_tag, false, true);
+        // Upstream widened this to a LIST of end-tag sequences (the first one
+        // doubles as the forcing sequence) so a model whose closing tag isn't
+        // the standard </think> can be handled too. We still configure exactly
+        // one tag, so wrap it — behaviour is identical to the single-tag field
+        // this replaced.
+        smp.reasoning_budget_end = {common_tokenize(vocab, end_tag, false, true)};
         smp.reasoning_budget_forced =
             common_tokenize(vocab, msg + end_tag, false, true);
         smp.reasoning_budget_message = msg;
