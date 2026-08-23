@@ -859,6 +859,16 @@ static void run_embed(fllama_embed_request request,
     // Which job this is, decided by the keys present.
     const bool is_rerank = body.contains("query") || body.contains("documents");
 
+    // Blank input has to be rejected HERE, on the raw text, not after
+    // tokenizing. Most models prepend a BOS token, so "" tokenizes to [BOS] —
+    // non-empty — and the server happily returns the embedding OF NOTHING: a
+    // finite, normalized, entirely meaningless vector that will still score
+    // against every query. The upstream `tokens.empty()` guard only catches
+    // the minority of models that add no BOS.
+    auto blank = [](const std::string &s) {
+      return s.find_first_not_of(" \t\r\n") == std::string::npos;
+    };
+
     std::string query;
     std::vector<std::string> documents;
     fllama_json inputs;
@@ -870,10 +880,31 @@ static void run_embed(fllama_embed_request request,
         return finish_err("rerank needs a non-empty \"documents\" array");
       query = body.at("query").get<std::string>();
       documents = body.at("documents").get<std::vector<std::string>>();
+      if (blank(query)) return finish_err("rerank \"query\" is blank");
+      for (size_t i = 0; i < documents.size(); i++)
+        if (blank(documents[i]))
+          return finish_err("rerank document #" + std::to_string(i) +
+                            " is blank");
     } else {
       if (!body.contains("input"))
         return finish_err("embedding needs \"input\" (string or string array)");
       inputs = body.at("input");
+      if (inputs.is_string()) {
+        if (blank(inputs.get<std::string>()))
+          return finish_err("embedding \"input\" is blank");
+      } else if (inputs.is_array()) {
+        if (inputs.empty()) return finish_err("embedding \"input\" is empty");
+        for (size_t i = 0; i < inputs.size(); i++) {
+          if (!inputs[i].is_string())
+            return finish_err("embedding input #" + std::to_string(i) +
+                              " is not a string");
+          if (blank(inputs[i].get<std::string>()))
+            return finish_err("embedding input #" + std::to_string(i) +
+                              " is blank");
+        }
+      } else {
+        return finish_err("embedding \"input\" must be a string or array");
+      }
     }
 
     // ── Params. embedding/pooling are LOAD-TIME: llama.cpp decides then
