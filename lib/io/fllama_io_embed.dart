@@ -118,6 +118,12 @@ Future<Map<String, dynamic>> _embedRaw({
   // Native calls back from its own thread; a listener callable hands the
   // result to this isolate's event loop. It must outlive the native call, so
   // it is closed inside the callback rather than in a finally block.
+  //
+  // The two incoming pointers are NOT ours to free: emit_embed_callback keeps
+  // the strings alive in a native-side queue precisely because .listener is
+  // asynchronous. Freeing them here would be a double free; reading them after
+  // the native scope ended — which an earlier version did — was a
+  // use-after-free that surfaced as an intermittent UTF-8 FormatException.
   late final NativeCallable<
     Void Function(Pointer<Char>, Pointer<Char>)
   > callback;

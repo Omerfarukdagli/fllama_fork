@@ -806,6 +806,27 @@ static void run_inference(fllama_inference_request request,
   }
 }
 
+// Same lifetime problem as emit_inference_callback, same fix. NativeCallable
+// .listener is ASYNCHRONOUS: the native call returns immediately and Dart reads
+// the pointers off its event queue later, so c_str() into a local std::string
+// is a use-after-free by then. It fails as a UTF-8 FormatException in Dart —
+// intermittently, because whether the freed bytes are still intact is a race.
+static void emit_embed_callback(fllama_embed_callback callback,
+                                std::string result_json, std::string error) {
+  if (!callback) return;
+  struct payload { std::string result, error; };
+  static std::mutex mtx;
+  static std::deque<payload> q;
+  std::lock_guard<std::mutex> lk(mtx);
+  q.push_back({std::move(result_json), std::move(error)});
+  // A handful is plenty (one call per request, unlike per-token inference),
+  // but keep a margin for concurrent requests.
+  while (q.size() > 64) q.pop_front();
+  const auto &p = q.back();
+  callback(p.result.empty() ? nullptr : p.result.c_str(),
+           p.error.empty() ? nullptr : p.error.c_str());
+}
+
 // ── Embeddings / reranking (runs on per-request thread) ─────────────────────
 //
 // Mirrors server_routes::handle_embeddings_impl and post_rerank, minus the HTTP
@@ -817,7 +838,7 @@ static void run_embed(fllama_embed_request request,
                       fllama_embed_callback callback) {
   auto finish_err = [&](const std::string &msg) {
     log_message("[fllama] embed error: " + msg, request.dart_logger);
-    if (callback) callback(nullptr, msg.c_str());
+    emit_embed_callback(callback, std::string(), msg);
     g_mgr.clear_cancel(request.request_id);
     g_mgr.unregister_request_thread(request.request_id);
   };
@@ -987,8 +1008,7 @@ static void run_embed(fllama_embed_request request,
     }
     out["n_tokens"] = n_tokens;
 
-    const std::string dumped = out.dump();
-    if (callback) callback(dumped.c_str(), nullptr);
+    emit_embed_callback(callback, out.dump(), std::string());
     g_mgr.clear_cancel(rid);
     g_mgr.unregister_request_thread(rid);
   } catch (const std::exception &e) {
