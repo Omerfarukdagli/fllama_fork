@@ -724,6 +724,14 @@ static void run_inference(fllama_inference_request request,
                       request.dart_logger);
           g_mgr.mark_unhealthy(request.model_path);
         }
+        // The "Error: " prefix is the contract the Dart side detects failures
+        // by, and every OTHER error path in this file already uses it. Server
+        // errors did not, so a real failure arrived looking like a normal
+        // answer — "request (8207 tokens) exceeds the available context size"
+        // was rendered to the user as the assistant's reply, and the
+        // conversation never recovered because every following turn hit the
+        // same overflow.
+        if (msg.rfind("Error:", 0) != 0) msg = "Error: " + msg;
         emit_inference_callback(callback, msg, "", true);
         g_mgr.clear_cancel(rid);
         g_mgr.unregister_request_thread(rid);
