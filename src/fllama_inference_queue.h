@@ -57,6 +57,14 @@ struct ServerResources {
   std::vector<enum common_speculative_type> spec_types = {
       COMMON_SPECULATIVE_TYPE_NONE};
 
+  // Embedding mode is decided when the context is built: a context either
+  // pools (embeddings / reranking) or generates (chat). Handing a chat request
+  // an embedding context would produce no tokens at all, and the reverse fails
+  // the server's own `if (!params.embedding)` guard — so this is a cache-key
+  // field for the same reason a LoRA adapter is.
+  bool embedding = false;
+  enum llama_pooling_type pooling_type = LLAMA_POOLING_TYPE_UNSPECIFIED;
+
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread
 

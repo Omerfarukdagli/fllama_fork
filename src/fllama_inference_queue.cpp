@@ -75,7 +75,11 @@ static bool params_match(const ServerResources &r,
          r.cache_ram_mib == params.cache_ram_mib &&
          r.n_batch      == (int) params.n_batch &&
          r.n_ubatch     == (int) params.n_ubatch &&
-         r.spec_types   == params.speculative.types;
+         r.spec_types   == params.speculative.types &&
+         // A pooling context cannot generate and a generating context cannot
+         // pool; llama.cpp decides at load time.
+         r.embedding    == params.embedding &&
+         r.pooling_type == params.pooling_type;
 }
 
 ServerResources *
@@ -184,6 +188,8 @@ ServerManager::get_or_create(const std::string &model_path,
   res->n_batch       = (int) params.n_batch;
   res->n_ubatch      = (int) params.n_ubatch;
   res->spec_types    = params.speculative.types;
+  res->embedding     = params.embedding;
+  res->pooling_type  = params.pooling_type;
   res->last_used     = std::chrono::steady_clock::now();
   res->active_users.store(1);
 

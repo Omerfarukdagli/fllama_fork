@@ -73,6 +73,23 @@ class FllamaBindings {
   late final _fllama_inference_cancel = _fllama_inference_cancelPtr
       .asFunction<void Function(int)>();
 
+  /// Computes embeddings, or reranking scores, on a pooling context.
+  void fllama_embed(
+    fllama_embed_request request,
+    fllama_embed_callback callback,
+  ) {
+    return _fllama_embed(request, callback);
+  }
+
+  late final _fllama_embedPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(fllama_embed_request, fllama_embed_callback)
+        >
+      >('fllama_embed');
+  late final _fllama_embed = _fllama_embedPtr
+      .asFunction<void Function(fllama_embed_request, fllama_embed_callback)>();
+
   /// Frees every idle (no in-flight request) model context except the one at
   /// [except_model_path] (pass nullptr/"" to evict all idle).
   void fllama_evict_idle_servers(
@@ -308,4 +325,46 @@ final class fllama_tokenize_request extends ffi.Struct {
 
   /// Required: .ggml model file path
   external ffi.Pointer<ffi.Char> model_path;
+}
+
+/// Called once when [fllama_embed] finishes.
+///
+/// `result_json` is NULL on failure and `error` is NULL on success:
+///   embedding: {"embeddings": [[...], ...], "n_tokens": 123}
+///   rerank:    {"scores": [0.81, 0.12], "n_tokens": 123}
+typedef fllama_embed_callback =
+    ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Pointer<ffi.Char> result_json,
+          ffi.Pointer<ffi.Char> error,
+        )
+      >
+    >;
+
+final class fllama_embed_request extends ffi.Struct {
+  /// Required: unique ID for the request. Used for cancellation.
+  @ffi.Int()
+  external int request_id;
+
+  /// Required: context size
+  @ffi.Int()
+  external int context_size;
+
+  /// Required: embedding/reranking .gguf
+  external ffi.Pointer<ffi.Char> model_path;
+
+  @ffi.Int()
+  external int num_gpu_layers;
+
+  @ffi.Int()
+  external int num_threads;
+
+  /// Required: JSON describing the work. Embedding takes "input" (string or
+  /// string array) plus optional "pooling"/"normalize"; reranking takes
+  /// "query" and "documents". See fllama.h for the full shape.
+  external ffi.Pointer<ffi.Char> input_json;
+
+  /// Optional: Dart caller logger.
+  external fllama_log_callback dart_logger;
 }

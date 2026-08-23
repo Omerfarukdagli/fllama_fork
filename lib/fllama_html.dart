@@ -318,3 +318,47 @@ void fllamaCancelInference(int requestId) {
 /// Frees every idle model context except [exceptModelPath]. Web keeps a
 /// single wasm module/model, so there is nothing to evict — no-op.
 Future<void> fllamaEvictIdleServers({String exceptModelPath = ''}) async {}
+
+// ── Embeddings / reranking: not wired on web ────────────────────────────────
+//
+// The native path posts SERVER_TASK_TYPE_EMBEDDING / _RERANK to the vendored
+// llama.cpp server. wllama exposes its own embedding reader, so this is
+// implementable — it just hasn't been done, and returning wrong vectors
+// silently would be worse than an explicit failure.
+
+/// One vector per input. Web build: unimplemented.
+class FllamaEmbedResult {
+  const FllamaEmbedResult({required this.embeddings, required this.tokenCount});
+  final List<List<double>> embeddings;
+  final int tokenCount;
+}
+
+/// One score per document. Web build: unimplemented.
+class FllamaRerankResult {
+  const FllamaRerankResult({required this.scores, required this.tokenCount});
+  final List<double> scores;
+  final int tokenCount;
+}
+
+Future<FllamaEmbedResult> fllamaEmbed({
+  required String modelPath,
+  required List<String> inputs,
+  int contextSize = 2048,
+  int numGpuLayers = 99,
+  int numThreads = 2,
+  String pooling = 'mean',
+  bool normalize = true,
+}) async {
+  throw UnimplementedError('fllamaEmbed is not implemented on web');
+}
+
+Future<FllamaRerankResult> fllamaRerank({
+  required String modelPath,
+  required String query,
+  required List<String> documents,
+  int contextSize = 2048,
+  int numGpuLayers = 99,
+  int numThreads = 2,
+}) async {
+  throw UnimplementedError('fllamaRerank is not implemented on web');
+}

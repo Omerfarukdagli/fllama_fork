@@ -806,6 +806,190 @@ static void run_inference(fllama_inference_request request,
   }
 }
 
+// ── Embeddings / reranking (runs on per-request thread) ─────────────────────
+//
+// Mirrors server_routes::handle_embeddings_impl and post_rerank, minus the HTTP
+// layer: same task types, same tokenizers, same result structs. Everything here
+// already existed in the vendored server; fllama just never had an entry point
+// for it, so callers were stuck with lexical search.
+
+static void run_embed(fllama_embed_request request,
+                      fllama_embed_callback callback) {
+  auto finish_err = [&](const std::string &msg) {
+    log_message("[fllama] embed error: " + msg, request.dart_logger);
+    if (callback) callback(nullptr, msg.c_str());
+    g_mgr.clear_cancel(request.request_id);
+    g_mgr.unregister_request_thread(request.request_id);
+  };
+
+  try {
+    fllama_backend_init_once();
+
+    if (!request.model_path || request.model_path[0] == '\0')
+      return finish_err("model_path is required");
+
+    fllama_json body;
+    try {
+      body = fllama_json::parse(request.input_json ? request.input_json : "");
+    } catch (const std::exception &e) {
+      return finish_err(std::string("input_json is not valid JSON: ") + e.what());
+    }
+
+    // Which job this is, decided by the keys present.
+    const bool is_rerank = body.contains("query") || body.contains("documents");
+
+    std::string query;
+    std::vector<std::string> documents;
+    fllama_json inputs;
+    if (is_rerank) {
+      if (!body.contains("query") || !body.at("query").is_string())
+        return finish_err("rerank needs a string \"query\"");
+      if (!body.contains("documents") || !body.at("documents").is_array() ||
+          body.at("documents").empty())
+        return finish_err("rerank needs a non-empty \"documents\" array");
+      query = body.at("query").get<std::string>();
+      documents = body.at("documents").get<std::vector<std::string>>();
+    } else {
+      if (!body.contains("input"))
+        return finish_err("embedding needs \"input\" (string or string array)");
+      inputs = body.at("input");
+    }
+
+    // ── Params. embedding/pooling are LOAD-TIME: llama.cpp decides then
+    // whether the context pools or generates, so these are part of the server
+    // cache key (see params_match in fllama_inference_queue.cpp).
+    common_params params;
+    params.model.path      = request.model_path;
+    params.n_ctx           = request.context_size;
+    params.n_batch         = std::min<int32_t>(request.context_size, 2048);
+    params.n_ubatch        = std::min<int32_t>(params.n_batch, 512);
+    params.n_parallel      = ServerManager::DEFAULT_N_PARALLEL;
+    params.cpuparams.n_threads = request.num_threads;
+    params.cache_ram_mib   = 0;
+    params.embedding       = true;
+
+    if (is_rerank) {
+      // A reranker attaches a classification head; any other pooling would
+      // return a vector nobody asked for instead of a score.
+      params.pooling_type = LLAMA_POOLING_TYPE_RANK;
+    } else {
+      const std::string pooling =
+          body.value("pooling", std::string("mean"));
+      if (pooling == "mean")      params.pooling_type = LLAMA_POOLING_TYPE_MEAN;
+      else if (pooling == "cls")  params.pooling_type = LLAMA_POOLING_TYPE_CLS;
+      else if (pooling == "last") params.pooling_type = LLAMA_POOLING_TYPE_LAST;
+      else return finish_err("unknown pooling: " + pooling +
+                             " (mean | cls | last)");
+    }
+
+#if TARGET_IPHONE_SIMULATOR
+    params.n_gpu_layers = 0;
+#else
+    params.n_gpu_layers = request.num_gpu_layers;
+#endif
+    postprocess_cpu_params(params.cpuparams);
+
+    auto *srv = g_mgr.get_or_create(request.model_path, params,
+                                    request.dart_logger);
+    if (!srv || !srv->srv_ctx) {
+      const std::string reason = fllama_take_last_llama_error();
+      return finish_err(reason.empty()
+                            ? "Failed to create embedding context"
+                            : "Failed to create embedding context: " + reason);
+    }
+    struct Guard {
+      ServerManager &m; std::string p;
+      ~Guard() { m.release(p); }
+    } guard{g_mgr, request.model_path};
+
+    auto *lctx  = srv->srv_ctx->get_llama_context();
+    auto *model = llama_get_model(lctx);
+    auto *vocab = llama_model_get_vocab(model);
+
+    auto reader = srv->srv_ctx->get_response_reader();
+    std::vector<server_task> tasks;
+
+    if (is_rerank) {
+      tasks.reserve(documents.size());
+      for (size_t i = 0; i < documents.size(); i++) {
+        server_task task(SERVER_TASK_TYPE_RERANK);
+        task.id     = reader.get_new_id();
+        task.index  = i;
+        // [BOS]query[EOS][SEP]doc[EOS] — the layout rerankers are trained on.
+        task.tokens = format_prompt_rerank(model, vocab, nullptr, query,
+                                           documents[i]);
+        tasks.push_back(std::move(task));
+      }
+    } else {
+      auto tokenized = tokenize_input_prompts(vocab, nullptr, inputs, true, true);
+      if (tokenized.empty()) return finish_err("input produced no tokens");
+      const int normalize = body.value("normalize", true) ? 2 : -1;
+      tasks.reserve(tokenized.size());
+      for (size_t i = 0; i < tokenized.size(); i++) {
+        // Models that don't add a BOS token can tokenize to nothing; the
+        // server asserts on an empty prompt rather than returning an error.
+        if (tokenized[i].empty())
+          return finish_err("input #" + std::to_string(i) + " is empty");
+        server_task task(SERVER_TASK_TYPE_EMBEDDING);
+        task.id     = reader.get_new_id();
+        task.index  = i;
+        task.tokens = std::move(tokenized[i]);
+        task.params.embd_normalize = normalize;
+        tasks.push_back(std::move(task));
+      }
+    }
+
+    const size_t expected = tasks.size();
+    reader.post_tasks(std::move(tasks));
+
+    int rid = request.request_id;
+    auto should_stop = [&] { return g_mgr.is_cancelled(rid); };
+    auto all = reader.wait_for_all(should_stop);
+
+    if (all.is_terminated) return finish_err("cancelled");
+    if (all.error) {
+      auto ej = all.error->to_json();
+      return finish_err(ej.contains("message")
+                            ? ej["message"].get<std::string>()
+                            : ej.dump());
+    }
+
+    // Results can arrive out of order; task.index puts them back.
+    fllama_json out;
+    int32_t n_tokens = 0;
+    if (is_rerank) {
+      std::vector<double> scores(expected, 0.0);
+      for (auto &r : all.results) {
+        auto *rr = dynamic_cast<server_task_result_rerank *>(r.get());
+        if (!rr) return finish_err("unexpected result type for rerank");
+        if (rr->index < scores.size()) scores[rr->index] = rr->score;
+        n_tokens += rr->n_tokens;
+      }
+      out["scores"] = scores;
+    } else {
+      std::vector<std::vector<float>> vecs(expected);
+      for (auto &r : all.results) {
+        auto *er = dynamic_cast<server_task_result_embd *>(r.get());
+        if (!er) return finish_err("unexpected result type for embedding");
+        if (er->index < vecs.size() && !er->embedding.empty())
+          vecs[er->index] = er->embedding[0];
+        n_tokens += er->n_tokens;
+      }
+      out["embeddings"] = vecs;
+    }
+    out["n_tokens"] = n_tokens;
+
+    const std::string dumped = out.dump();
+    if (callback) callback(dumped.c_str(), nullptr);
+    g_mgr.clear_cancel(rid);
+    g_mgr.unregister_request_thread(rid);
+  } catch (const std::exception &e) {
+    finish_err(std::string("exception: ") + e.what());
+  } catch (...) {
+    finish_err("unknown exception");
+  }
+}
+
 // ── FFI entry points ─────────────────────────────────────────────────────────
 
 extern "C" {
@@ -880,6 +1064,13 @@ fllama_inference_sync(fllama_inference_request request,
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
 fllama_inference_cancel(int request_id) {
   g_mgr.cancel(request_id);
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
+fllama_embed(fllama_embed_request request, fllama_embed_callback callback) {
+  int rid = request.request_id;
+  std::thread t([request, callback] { run_embed(request, callback); });
+  g_mgr.register_request_thread(rid, std::move(t));
 }
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void

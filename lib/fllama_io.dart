@@ -1,3 +1,4 @@
+export 'io/fllama_io_embed.dart';
 export 'io/fllama_io_gpu.dart';
 export 'io/fllama_io_inference.dart';
 export 'io/fllama_io_tokenize.dart';

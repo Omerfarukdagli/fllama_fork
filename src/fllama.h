@@ -129,6 +129,57 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_
                            fllama_inference_callback callback);
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id);
 
+// ── Embeddings and reranking ────────────────────────────────────────────────
+//
+// llama.cpp has carried both for a long time (llama_set_embeddings,
+// llama_get_embeddings_seq, LLAMA_POOLING_TYPE_RANK) and the vendored server
+// already implements SERVER_TASK_TYPE_EMBEDDING / _RERANK. fllama simply never
+// exposed them, so callers had to fall back to lexical search. This is the same
+// shape as request_overrides_json: the capability was already in the engine.
+//
+// A context can only do ONE of these: llama.cpp decides at load time whether it
+// pools (embeddings) or generates (chat). The server cache therefore keys on
+// this flag, exactly like a LoRA adapter — an embedding context will never be
+// handed to a chat request and vice versa. In practice the embedding model is a
+// separate, small GGUF anyway.
+struct fllama_embed_request {
+  int request_id;    // Required: unique ID (used for cancellation).
+  int context_size;  // Required: context size.
+  char *model_path;  // Required: embedding/reranking .gguf.
+  int num_gpu_layers;
+  int num_threads;
+
+  // Required: JSON describing the work. Two shapes, picked by which keys are
+  // present, so one entry point serves both:
+  //
+  //   Embedding:
+  //     {"input": ["passage one", "passage two"],
+  //      "pooling": "mean",      // "mean" (default) | "cls" | "last"
+  //      "normalize": true}      // L2-normalize; default true, which is what
+  //                              // cosine similarity expects
+  //
+  //   Reranking:
+  //     {"query": "warranty period",
+  //      "documents": ["...", "..."]}
+  //     Pooling is forced to "rank" — a reranker attaches a classification
+  //     head, so any other pooling would silently return nonsense.
+  char *input_json;
+
+  fllama_log_callback dart_logger; // Optional.
+};
+
+// Called once when the work finishes.
+// [result_json] on success:
+//   embedding: {"embeddings": [[...floats...], ...], "n_tokens": 123}
+//   rerank:    {"scores": [0.81, 0.12], "n_tokens": 123}
+// [error] is NULL on success, and a message when result_json is NULL.
+typedef void (*fllama_embed_callback)(const char *result_json,
+                                      const char *error);
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
+fllama_embed(struct fllama_embed_request request,
+             fllama_embed_callback callback);
+
 // Frees every idle (no in-flight request) model context except the one at
 // [except_model_path] (pass NULL or "" to evict all idle).  Host apps call
 // this before loading a DIFFERENT model (model switch / benchmark) so two
