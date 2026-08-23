@@ -107,3 +107,36 @@ Future<void> fllamaEvictIdleServers({String exceptModelPath = ''}) {
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   throw UnimplementedError();
 }
+
+// Embeddings / reranking. Like every other entry here, this mirrors the io API
+// so the conditional export in fllama.dart resolves on every target — the
+// analyzer picks THIS file when neither dart.library.io nor js_interop is
+// known, which is what `flutter analyze` does. A missing name here reads as
+// "fllamaEmbed isn't defined" in the consuming app even though the native
+// build is fine.
+//
+// The result types come from the io library imported above; only the functions
+// are redeclared (a local declaration shadows the import).
+
+Future<FllamaEmbedResult> fllamaEmbed({
+  required String modelPath,
+  required List<String> inputs,
+  int contextSize = 2048,
+  int numGpuLayers = 99,
+  int numThreads = 2,
+  String pooling = 'mean',
+  bool normalize = true,
+}) {
+  throw UnimplementedError('fllamaEmbed is not implemented on this platform');
+}
+
+Future<FllamaRerankResult> fllamaRerank({
+  required String modelPath,
+  required String query,
+  required List<String> documents,
+  int contextSize = 2048,
+  int numGpuLayers = 99,
+  int numThreads = 2,
+}) {
+  throw UnimplementedError('fllamaRerank is not implemented on this platform');
+}
